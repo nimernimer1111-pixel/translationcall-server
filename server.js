@@ -89,7 +89,7 @@ async function callGemini(messages, systemPrompt){
     messages.forEach(msg=>{
       contents.push({ role:msg.role==='user'?'user':'model', parts:[{text:msg.content}] });
     });
-
+    console.log('📡 Sending request to Gemini...');
     const response = await fetch(GEMINI_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -99,13 +99,19 @@ async function callGemini(messages, systemPrompt){
       })
     });
 
-    const data = await response.json();
+        console.log('📨 Gemini status:', response.status);
+
+    const rawText = await response.text();
+    console.log('📄 Gemini raw response:', rawText);
+
+    const data = JSON.parse(rawText);
+        console.log('✅ Parsed Gemini response:', data);
     if(data.candidates && data.candidates[0]){
       return data.candidates[0].content.parts[0].text;
     }
     return null;
-  }catch(error){
-    console.error('Gemini error:', error);
+    }catch(error){
+    console.error('❌ Gemini error:', error);
     return null;
   }
 }
@@ -342,7 +348,9 @@ io.on('connection', (socket) => {
   // ==================
   // AI Chat
   // ==================
-  socket.on('ai-chat', async (data, callback) => {
+  socket.on('ai-chat', async (data, callback) => {    
+    console.log('🤖 AI request received:', data);
+    console.log('🔑 GEMINI_API_KEY exists:', !!GEMINI_API_KEY);
     const {message, language, mode, context} = data;
     try{
       if(!aiContexts.has(socket.id)) aiContexts.set(socket.id, []);
