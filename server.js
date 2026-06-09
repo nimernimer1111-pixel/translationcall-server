@@ -398,7 +398,22 @@ io.on('connection', (socket) => {
   socket.on('speaking', (data) => {
     socket.to(data.roomId).emit('partner-speaking', { speaking: data.speaking });
   });
+// WebRTC Signaling
+socket.on('rtc-offer', (data) => {
+  socket.to(data.roomId).emit('rtc-offer', { offer: data.offer });
+});
 
+socket.on('rtc-answer', (data) => {
+  socket.to(data.roomId).emit('rtc-answer', { answer: data.answer });
+});
+
+socket.on('rtc-ice', (data) => {
+  socket.to(data.roomId).emit('rtc-ice', { candidate: data.candidate });
+});
+
+socket.on('partner-camera-toggle', (data) => {
+  socket.to(data.roomId).emit('partner-camera-toggle', { enabled: data.enabled });
+});
   // ==================
   // AI Chat (Gemini)
   // ==================
