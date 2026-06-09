@@ -23,6 +23,10 @@ const ADMIN_PASSWORD = crypto
   .digest('hex');
 const ADMIN_PATH = 'admin-ojs111';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const SITE_ACCESS_CODE = crypto
+  .createHash('sha256')
+  .update('Nimer0787691975')
+  .digest('hex');
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 let adminSocket = null;
 
@@ -154,7 +158,22 @@ const aiContexts = new Map();
 // ============================================
 io.on('connection', (socket) => {
   console.log(`✅ Connected: ${socket.id}`);
+  // ==================
+  // Verify Site Access Code
+  // ==================
+  socket.on('verify-site-code', (data, callback) => {
+    const hashedCode = crypto
+      .createHash('sha256')
+      .update(data.code || '')
+      .digest('hex');
 
+    if (hashedCode === SITE_ACCESS_CODE) {
+      callback({ success: true });
+    } else {
+      callback({ success: false, error: 'كود الموقع غير صحيح' });
+      addLog('warning', '⚠️ محاولة دخول بكود موقع خاطئ');
+    }
+  });
   if (blockedUsers.has(socket.id)) {
     socket.emit('blocked', { message: 'تم حظرك من الموقع' });
     socket.disconnect();
