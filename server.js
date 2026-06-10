@@ -34,6 +34,10 @@ const aiContexts = new Map();
 const stats = { totalRooms:0, totalMessages:0, totalUsers:0, languages:{} };
 let maintenanceMode = false;
 
+// ✅ Grace period for reconnection (30 seconds)
+const disconnectTimers = new Map();
+const GRACE_PERIOD = 30000;
+
 // ============================================
 // Helpers
 // ============================================
@@ -60,7 +64,7 @@ function getRoomsData(){
   return Array.from(rooms.values()).map(room=>({
     id:room.id, isPrivate:room.isPrivate, status:room.status,
     participants:Array.from(room.participants.values()).map(p=>({
-      id:p.id, name:p.name, language:p.language, joinedAt:p.joinedAt
+      id:p.id, clientId:p.clientId, name:p.name, language:p.language, joinedAt:p.joinedAt
     })),
     createdAt:room.createdAt, messageCount:room.messages.length
   }));
@@ -76,6 +80,16 @@ function getStatsData(){
   };
 }
 
+// ✅ Find participant by clientId
+function findParticipantByClientId(roomId, clientId){
+  const room = rooms.get(roomId);
+  if(!room) return null;
+  for(const [socketId, p] of room.participants){
+    if(p.clientId === clientId) return { socketId, participant: p };
+  }
+  return null;
+}
+
 // ============================================
 // Gemini AI
 // ============================================
@@ -89,7 +103,7 @@ async function callGemini(messages, systemPrompt){
     messages.forEach(msg=>{
       contents.push({ role:msg.role==='user'?'user':'model', parts:[{text:msg.content}] });
     });
-    console.log('📡 Sending request to Gemini...');
+
     const response = await fetch(GEMINI_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -99,19 +113,14 @@ async function callGemini(messages, systemPrompt){
       })
     });
 
-        console.log('📨 Gemini status:', response.status);
-
-    const rawText = await response.text();
-    console.log('📄 Gemini raw response:', rawText);
-
-    const data = JSON.parse(rawText);
-        console.log('✅ Parsed Gemini response:', data);
+    const data = await response.json();
     if(data.candidates && data.candidates[0]){
       return data.candidates[0].content.parts[0].text;
     }
+    console.error('Gemini no candidates:', JSON.stringify(data));
     return null;
-    }catch(error){
-    console.error('❌ Gemini error:', error);
+  }catch(error){
+    console.error('Gemini error:', error);
     return null;
   }
 }
@@ -235,8 +244,9 @@ io.on('connection', (socket) => {
     if(maintenanceMode) return callback({success:false, error:'صيانة'});
 
     const roomId = generateCode();
+    const clientId = options.clientId || uuidv4();
     const room = {
-      id:roomId, hostId:socket.id,
+      id:roomId, hostId:socket.id, hostClientId:clientId,
       isPrivate:options.isPrivate||false,
       password:options.password||null,
       participants:new Map(),
@@ -244,13 +254,16 @@ io.on('connection', (socket) => {
     };
 
     room.participants.set(socket.id, {
-      id:socket.id, name:options.userName||'مضيف',
+      id:socket.id, clientId,
+      name:options.userName||'مضيف',
       language:options.language||'ar',
       isHost:true, joinedAt:new Date()
     });
 
     rooms.set(roomId, room);
     socket.join(roomId);
+    socket.clientId = clientId;
+    socket.currentRoom = roomId;
     stats.totalRooms++;
     stats.totalUsers++;
     if(options.language) stats.languages[options.language] = (stats.languages[options.language]||0)+1;
@@ -269,28 +282,82 @@ io.on('connection', (socket) => {
   socket.on('join-room', (data, callback) => {
     if(maintenanceMode) return callback({success:false, error:'صيانة'});
 
-    const {roomId, userName, language, password} = data;
+    const {roomId, userName, language, password, clientId} = data;
     const room = rooms.get(roomId);
 
     if(!room) return callback({success:false, error:'الغرفة غير موجودة'});
-    if(room.participants.size>=2 && !room.participants.has(socket.id))
+
+    // ✅ Check if this clientId is already in the room (reconnecting)
+    const existing = clientId ? findParticipantByClientId(roomId, clientId) : null;
+
+    if(existing){
+      // Reconnecting - update socket id
+      room.participants.delete(existing.socketId);
+      room.participants.set(socket.id, {
+        ...existing.participant,
+        id: socket.id
+      });
+      socket.join(roomId);
+      socket.clientId = clientId;
+      socket.currentRoom = roomId;
+
+      // Cancel disconnect timer if exists
+      const timerKey = `${roomId}-${clientId}`;
+      if(disconnectTimers.has(timerKey)){
+        clearTimeout(disconnectTimers.get(timerKey));
+        disconnectTimers.delete(timerKey);
+        console.log(`🔄 Reconnected: ${userName} in ${roomId}`);
+      }
+
+      // Get partner
+      let partner = null;
+      for(const [sid, p] of room.participants){
+        if(sid !== socket.id){ partner = p; break; }
+      }
+
+      // Notify partner that we're back
+      socket.to(roomId).emit('partner-reconnected', {
+        id: socket.id,
+        name: userName,
+        language
+      });
+
+      callback({
+        success:true, roomId,
+        partner: partner ? {id:partner.id, name:partner.name, language:partner.language} : null,
+        messages: room.messages,
+        reconnected: true
+      });
+      return;
+    }
+
+    // New join
+    if(room.participants.size >= 2)
       return callback({success:false, error:'الغرفة ممتلئة'});
-    if(room.isPrivate && room.password!==password && !room.participants.has(socket.id))
+    if(room.isPrivate && room.password !== password)
       return callback({success:false, error:'كلمة المرور غير صحيحة'});
 
-    if(!room.participants.has(socket.id)){
-      room.participants.set(socket.id, {
-        id:socket.id, name:userName, language,
-        isHost:false, joinedAt:new Date()
-      });
-    }
+    const newClientId = clientId || uuidv4();
+
+    room.participants.set(socket.id, {
+      id:socket.id, clientId:newClientId,
+      name:userName, language,
+      isHost:false, joinedAt:new Date()
+    });
 
     room.status = 'active';
     socket.join(roomId);
+    socket.clientId = newClientId;
+    socket.currentRoom = roomId;
     stats.totalUsers++;
     if(language) stats.languages[language] = (stats.languages[language]||0)+1;
 
-    const host = room.participants.get(room.hostId);
+    // Get host
+    let host = null;
+    for(const [sid, p] of room.participants){
+      if(sid !== socket.id){ host = p; break; }
+    }
+
     socket.to(roomId).emit('partner-joined', {id:socket.id, name:userName, language});
 
     addLog('room', `👥 ${userName} انضم: ${roomId}`);
@@ -299,7 +366,7 @@ io.on('connection', (socket) => {
 
     callback({
       success:true, roomId,
-      partner: host && host.id!==socket.id ? {id:host.id, name:host.name, language:host.language} : null,
+      partner: host ? {id:host.id, name:host.name, language:host.language} : null,
       messages: room.messages
     });
   });
@@ -323,10 +390,47 @@ io.on('connection', (socket) => {
   });
 
   // ==================
+  // ✅ Text Message (NEW)
+  // ==================
+  socket.on('text-message', (data) => {
+    const room = rooms.get(data.roomId);
+    if(!room) return;
+    const message = {
+      id:uuidv4(), senderId:socket.id,
+      senderName:data.senderName, senderLanguage:data.senderLanguage,
+      targetLanguage:data.targetLanguage,
+      originalText:data.originalText, translatedText:data.translatedText,
+      timestamp:new Date(), type:'text'
+    };
+    room.messages.push(message);
+    stats.totalMessages++;
+    io.to(data.roomId).emit('new-message', message);
+  });
+
+  // ==================
   // Speaking
   // ==================
   socket.on('speaking', (data) => {
     socket.to(data.roomId).emit('partner-speaking', {speaking:data.speaking});
+  });
+
+  // ==================
+  // ✅ Live Typing Indicator (NEW)
+  // ==================
+  socket.on('typing', (data) => {
+    socket.to(data.roomId).emit('partner-typing', {
+      typing:data.typing,
+      text:data.text || ''
+    });
+  });
+
+  // ==================
+  // ✅ Interim Speech (Live text while speaking) (NEW)
+  // ==================
+  socket.on('interim-speech', (data) => {
+    socket.to(data.roomId).emit('partner-interim-speech', {
+      text:data.text
+    });
   });
 
   // ==================
@@ -348,9 +452,7 @@ io.on('connection', (socket) => {
   // ==================
   // AI Chat
   // ==================
-  socket.on('ai-chat', async (data, callback) => {    
-    console.log('🤖 AI request received:', data);
-    console.log('🔑 GEMINI_API_KEY exists:', !!GEMINI_API_KEY);
+  socket.on('ai-chat', async (data, callback) => {
     const {message, language, mode, context} = data;
     try{
       if(!aiContexts.has(socket.id)) aiContexts.set(socket.id, []);
@@ -396,37 +498,79 @@ io.on('connection', (socket) => {
   // ==================
   // Leave Room
   // ==================
-  socket.on('leave-room', (data) => { handleLeave(socket, data.roomId); });
+  socket.on('leave-room', (data) => {
+    handleLeave(socket, data.roomId, false);
+  });
 
   // ==================
-  // Disconnect
+  // ✅ Disconnect with Grace Period
   // ==================
   socket.on('disconnect', () => {
+    console.log(`❌ Disconnected: ${socket.id}`);
+
     if(socket.isAdmin){ adminSocket=null; }
     aiContexts.delete(socket.id);
-    rooms.forEach((room, roomId) => {
-      if(room.participants.has(socket.id)) handleLeave(socket, roomId);
-    });
+
+    // ✅ Don't remove immediately - give grace period for reconnection
+    if(socket.currentRoom && socket.clientId){
+      const roomId = socket.currentRoom;
+      const clientId = socket.clientId;
+      const timerKey = `${roomId}-${clientId}`;
+
+      // Notify partner that we might be disconnecting
+      socket.to(roomId).emit('partner-connection-unstable', {
+        message: 'قد يكون شريكك يعيد الاتصال...'
+      });
+
+      console.log(`⏳ Grace period started for ${clientId} in ${roomId}`);
+
+      // Wait GRACE_PERIOD before actually removing
+      const timer = setTimeout(() => {
+        console.log(`⏰ Grace period expired for ${clientId} in ${roomId}`);
+        disconnectTimers.delete(timerKey);
+        handleLeave(socket, roomId, true);
+      }, GRACE_PERIOD);
+
+      disconnectTimers.set(timerKey, timer);
+    }else{
+      // No room - just clean up
+      rooms.forEach((room, roomId) => {
+        if(room.participants.has(socket.id)){
+          handleLeave(socket, roomId, true);
+        }
+      });
+    }
   });
 });
 
 // ============================================
 // Handle Leave
 // ============================================
-function handleLeave(socket, roomId){
+function handleLeave(socket, roomId, isDisconnect){
   const room = rooms.get(roomId);
   if(!room) return;
+
   const participant = room.participants.get(socket.id);
-  room.participants.delete(socket.id);
-  socket.leave(roomId);
-  if(room.participants.size===0){
+  if(!participant && isDisconnect){
+    // Maybe already removed or reconnected
+    return;
+  }
+
+  if(participant){
+    room.participants.delete(socket.id);
+  }
+
+  try{ socket.leave(roomId); }catch(e){}
+
+  if(room.participants.size === 0){
     rooms.delete(roomId);
     addLog('room', `🗑️ انتهت: ${roomId}`);
   }else{
-    socket.to(roomId).emit('partner-left', {name:participant?.name||'الشريك'});
+    io.to(roomId).emit('partner-left', {name:participant?.name||'الشريك'});
     room.status = 'waiting';
-    addLog('room', `👋 ${participant?.name} غادر: ${roomId}`);
+    addLog('room', `👋 ${participant?.name||'?'} غادر: ${roomId}`);
   }
+
   notifyAdmin('rooms-update', getRoomsData());
   notifyAdmin('stats-update', getStatsData());
 }
