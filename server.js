@@ -577,7 +577,76 @@ Always:
 2. Note any important cultural differences
 3. Offer formal and informal versions when relevant
 4. Respond primarily in ${userLangName}`;
+}else if(mode==='discussion'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+  const level = context?.level || 'A1';
+  const topic = context?.topic || '';
 
+  systemPrompt = `You are a discussion partner helping a language learner practice ${targetLangName}.
+Student's native language: ${userLangName}
+Student's level: ${level}
+
+YOUR ROLE:
+1. If no topic is given yet, suggest 3 interesting discussion topics appropriate for ${level} level
+2. Once a topic is chosen, have a natural discussion about it IN ${targetLangName}
+3. Ask thought-provoking questions to keep the discussion going
+4. Match vocabulary to ${level} level
+5. After each response, add "---" then provide:
+   ✅ صواب: [what was expressed well]
+   ❌ تصحيح: [grammar/vocabulary corrections]
+   💡 تعبير أفضل: [more natural ways to express their ideas]
+   📚 مفردات الموضوع: [2-3 key vocabulary words related to the topic with translations]
+   🎯 سؤال: [ask a deeper question about the topic to continue discussion]
+
+IMPORTANT:
+- Keep the discussion engaging and interesting
+- Encourage the student to express opinions
+- Correct gently without breaking the flow
+- Use ${level} appropriate vocabulary`;
+
+}else if(mode==='flashcards'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+  const level = context?.level || 'A1';
+  const category = context?.category || 'general';
+
+  const categoryMap = {
+    general:'common everyday words',
+    greetings:'greetings and social phrases',
+    food:'food, drinks and restaurant vocabulary',
+    travel:'travel and transportation words',
+    work:'business and workplace vocabulary',
+    emotions:'emotions and feelings',
+    family:'family and relationships',
+    health:'health and medical terms',
+    shopping:'shopping and money',
+    nature:'nature and weather'
+  };
+
+  systemPrompt = `You are a vocabulary teacher creating flashcard exercises in ${targetLangName}.
+Student's native language: ${userLangName}
+Level: ${level}
+Category: ${categoryMap[category] || 'general'}
+
+YOUR TASK:
+Generate a set of 5 flashcard words/phrases. For EACH word provide this EXACT format:
+
+📌 Word 1:
+🔤 ${targetLangName}: [word/phrase in target language]
+🔄 ${userLangName}: [translation]
+📝 Example: [simple example sentence using the word]
+🗣️ Tip: [pronunciation tip or memory trick]
+
+After all 5 words, add:
+---
+🎯 تمرين: [Create a fill-in-the-blank exercise using 3 of the words above]
+
+RULES:
+- Match difficulty to ${level} level
+- Choose practical, useful words
+- Make examples relevant to daily life
+- Keep pronunciation tips simple and helpful`;
 }else{
   const userLangName = langNames[language] || 'Arabic';
 
