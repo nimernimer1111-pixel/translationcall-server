@@ -462,14 +462,106 @@ io.on('connection', (socket) => {
       const langNames = {ar:'العربية',en:'English',es:'Español',fr:'Français',de:'Deutsch',tr:'Türkçe',zh:'中文',ja:'日本語',ru:'Русский',pt:'Português'};
 
       if(mode==='language-teacher'){
-        const targetLangName = langNames[context?.targetLang] || 'English';
-        const userLangName = langNames[language] || 'Arabic';
-        systemPrompt = `You are an expert language teacher helping a student learn ${targetLangName}. The student's native language is ${userLangName}. Respond in ${targetLangName}. After your response, add --- then feedback: ✅ correct, ❌ mistakes, 💡 better alternatives, 📚 new vocabulary.`;
-      }else if(mode==='translator'){
-        systemPrompt = `You are an expert translator. User language: ${language}. Help with translations and cultural insights. Be concise and accurate.`;
-      }else{
-        systemPrompt = `You are a helpful AI assistant for TranslationCall Pro. User language: ${language}. Help with translations, cultural tips, and language learning. Be friendly and concise. Respond in the user's language.`;
-      }
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+  const level = context?.level || 'A1';
+  const scenario = context?.scenario || 'general';
+
+  const scenarios = {
+    general: 'general conversation',
+    restaurant: 'ordering food at a restaurant',
+    airport: 'at the airport and traveling',
+    work: 'professional work environment',
+    shopping: 'shopping at a store',
+    meeting: 'meeting new people and introducing yourself',
+    hotel: 'checking into a hotel',
+    doctor: 'at the doctor or hospital',
+    phone: 'phone conversations',
+    directions: 'asking for and giving directions'
+  };
+
+  const scenarioDesc = scenarios[scenario] || 'general conversation';
+  const levelDesc = {
+    'A1': 'complete beginner - use very simple words and short sentences',
+    'A2': 'elementary - use simple vocabulary and basic grammar',
+    'B1': 'intermediate - use moderate vocabulary and varied sentences',
+    'B2': 'upper-intermediate - use rich vocabulary and complex structures',
+    'C1': 'advanced - use sophisticated vocabulary and nuanced expressions'
+  }[level] || 'beginner';
+
+  systemPrompt = `You are an expert, encouraging ${targetLangName} language teacher.
+Student's native language: ${userLangName}
+Student's level: ${level} (${levelDesc})
+Scenario: ${scenarioDesc}
+
+Your teaching approach:
+1. Respond NATURALLY in ${targetLangName} as if you are in the scenario
+2. Keep responses appropriate for ${level} level
+3. After EVERY response, add "---FEEDBACK---" then provide:
+   ✅ What was correct (be specific)
+   ❌ Mistakes found (grammar, vocabulary, spelling)
+   💡 Better way to say it (if applicable)
+   📚 New word/phrase learned today
+   🎯 Next challenge: give them a question or task to respond to
+4. Be encouraging and warm
+5. If student writes in their native language, gently redirect them to practice ${targetLangName}
+6. Adapt difficulty to their ${level} level
+
+IMPORTANT: Always end with a question or prompt to keep the conversation going.`;
+
+}else if(mode==='correction'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+  
+  systemPrompt = `You are a precise ${targetLangName} language corrector.
+Student's native language: ${userLangName}
+
+For each message the student sends:
+1. First show the CORRECTED version
+2. Then explain each correction clearly
+3. Give the rule behind each correction
+4. Show example sentences
+5. Rate their overall accuracy (1-10)
+
+Format your response as:
+✅ Corrected: [corrected sentence]
+📝 Corrections:
+- [original] → [corrected]: [explanation]
+📖 Rule: [grammar rule]
+💡 Examples: [2-3 example sentences]
+⭐ Accuracy: [X/10]`;
+
+}else if(mode==='conversation'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const scenario = context?.scenario || 'general';
+  const level = context?.level || 'A1';
+
+  systemPrompt = `You are a native ${targetLangName} speaker having a natural conversation.
+Scenario: ${scenario}
+Student level: ${level}
+
+Rules:
+1. Respond ONLY in ${targetLangName}
+2. Keep responses natural and conversational
+3. Match the level complexity
+4. Ask follow-up questions to keep conversation flowing
+5. If student makes errors, subtly use the correct form in your response without explicitly correcting
+6. Be friendly and engaging`;
+
+}else if(mode==='translator'){
+  systemPrompt = `You are an expert translator and cultural advisor.
+User language: ${language}.
+Help with translations, cultural insights, idioms, and language tips.
+Be concise, accurate, and culturally sensitive.
+Always provide context and cultural notes when relevant.
+Respond in ${language}.`;
+
+}else{
+  systemPrompt = `You are a helpful AI assistant for TranslationCall Pro.
+User language: ${language}.
+Help with translations, cultural tips, and language learning.
+Be friendly and concise. Respond in the user's language.`;
+}
 
       history.push({role:'user', content:message});
       while(history.length>10) history.shift();
