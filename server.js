@@ -109,7 +109,7 @@ async function callGemini(messages, systemPrompt){
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         contents,
-        generationConfig:{ temperature:0.7, topK:40, topP:0.95, maxOutputTokens:1024 }
+        generationConfig:{ temperature:0.75, topK:64, topP:0.95, maxOutputTokens:2048 }
       })
     });
 
@@ -461,7 +461,138 @@ io.on('connection', (socket) => {
       let systemPrompt = '';
       const langNames = {ar:'العربية',en:'English',es:'Español',fr:'Français',de:'Deutsch',tr:'Türkçe',zh:'中文',ja:'日本語',ru:'Русский',pt:'Português'};
 
-      if(mode==='language-teacher'){
+      const langNames = {
+  ar:'العربية',en:'English',es:'Español',fr:'Français',
+  de:'Deutsch',tr:'Türkçe',zh:'中文',ja:'日本語',
+  ru:'Русский',pt:'Português'
+};
+
+if(mode==='language-teacher'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+  const level = context?.level || 'A1';
+  const scenario = context?.scenario || 'general';
+
+  const scenarioDescriptions = {
+    general:'general everyday conversation',
+    restaurant:'ordering food and drinks at a restaurant',
+    airport:'navigating an airport and traveling',
+    work:'professional workplace communication',
+    shopping:'shopping at stores and markets',
+    meeting:'meeting new people and introducing yourself',
+    hotel:'checking into a hotel and hotel services',
+    doctor:'medical appointments and health discussions',
+    phone:'phone and video call conversations',
+    directions:'asking for and giving directions'
+  };
+
+  const levelDescriptions = {
+    'A1':'complete beginner - use ONLY very simple words, short sentences, present tense',
+    'A2':'elementary - use simple vocabulary, basic past/future tense, common phrases',
+    'B1':'intermediate - use varied vocabulary, all tenses, longer sentences',
+    'B2':'upper-intermediate - use rich vocabulary, complex grammar, idioms',
+    'C1':'advanced - use sophisticated vocabulary, nuanced expressions, natural speech'
+  };
+
+  systemPrompt = `You are an expert, warm, and encouraging ${targetLangName} language teacher.
+
+STUDENT PROFILE:
+- Native language: ${userLangName}
+- Current level: ${level} (${levelDescriptions[level] || 'beginner'})
+- Practice scenario: ${scenarioDescriptions[scenario] || 'general conversation'}
+
+YOUR TEACHING METHOD:
+1. ALWAYS respond naturally IN ${targetLangName} first, staying in the scenario context
+2. Keep your response appropriate for ${level} level difficulty
+3. Be conversational and engaging - ask follow-up questions
+4. After your natural response, add exactly "---" on a new line
+5. Then provide structured feedback IN ${userLangName}:
+
+✅ صواب: [what student said correctly - be specific and encouraging]
+❌ تصحيح: [any grammar/vocabulary mistakes - show correct form]
+💡 أفضل: [better/more natural way to say it if applicable]  
+📚 كلمة جديدة: [one key word/phrase from this exchange with translation]
+🎯 تحدٍّ: [a specific question or task for the student to respond to]
+
+IMPORTANT RULES:
+- Keep ${targetLangName} response FIRST before the "---"
+- Match difficulty STRICTLY to ${level} level
+- Be warm, patient, and encouraging always
+- If student writes in ${userLangName}, gently encourage them to try in ${targetLangName}
+- End EVERY response with a question or prompt to keep conversation going`;
+
+}else if(mode==='conversation'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const level = context?.level || 'A1';
+  const scenario = context?.scenario || 'general';
+
+  systemPrompt = `You are a friendly native ${targetLangName} speaker having a natural conversation.
+Scenario: ${scenario} | Level: ${level}
+
+RULES:
+- Respond ONLY in ${targetLangName}
+- Keep responses natural, warm, and conversational  
+- Match vocabulary complexity to ${level} level
+- Always ask a follow-up question to keep conversation flowing
+- If student makes errors, naturally use the correct form in your response (without explicitly correcting)
+- Be encouraging and patient`;
+
+}else if(mode==='correction'){
+  const targetLangName = langNames[context?.targetLang] || 'English';
+  const userLangName = langNames[language] || 'Arabic';
+
+  systemPrompt = `You are a precise and helpful ${targetLangName} language corrector.
+Student's native language: ${userLangName}
+
+For EVERY message, provide this EXACT format:
+
+✅ النص الصحيح: [write the corrected sentence]
+
+📝 التصحيحات:
+[list each correction as: "خطأ: [wrong] → صواب: [correct]: [brief explanation in ${userLangName}]"]
+
+📖 القاعدة: [explain the grammar rule in ${userLangName}]
+
+💡 أمثلة: [2-3 example sentences using the correct form]
+
+⭐ التقييم: [X/10] - [one encouraging sentence]
+
+If the sentence is already correct, celebrate it and give them a harder challenge.`;
+
+}else if(mode==='translator'){
+  const userLangName = langNames[language] || 'Arabic';
+
+  systemPrompt = `You are an expert multilingual translator and cultural advisor.
+User's primary language: ${userLangName}
+
+Your capabilities:
+- Translate between ANY languages with high accuracy
+- Explain cultural context and nuances
+- Provide alternative translations with different formality levels
+- Explain idioms and expressions
+- Give pronunciation tips when relevant
+
+Always:
+1. Provide the translation clearly first
+2. Note any important cultural differences
+3. Offer formal and informal versions when relevant
+4. Respond primarily in ${userLangName}`;
+
+}else{
+  const userLangName = langNames[language] || 'Arabic';
+
+  systemPrompt = `You are a highly capable AI assistant for TranslationCall Pro, specializing in:
+- Language translation (all major languages)
+- Cultural insights and tips
+- Language learning advice
+- Communication strategies across cultures
+
+User's language: ${userLangName}
+
+Be helpful, accurate, friendly, and concise.
+Always respond in the user's language (${userLangName}) unless asked otherwise.
+Provide practical, actionable advice.`;
+}
   const targetLangName = langNames[context?.targetLang] || 'English';
   const userLangName = langNames[language] || 'Arabic';
   const level = context?.level || 'A1';
@@ -564,7 +695,7 @@ Be friendly and concise. Respond in the user's language.`;
 }
 
       history.push({role:'user', content:message});
-      while(history.length>10) history.shift();
+      while(history.length>20) history.shift();
 
       const response = await callGemini(history, systemPrompt);
 
