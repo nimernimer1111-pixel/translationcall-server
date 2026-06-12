@@ -20,7 +20,7 @@ const io = new Server(server, {
 const ADMIN_PASSWORD_HASH = crypto.createHash('sha256').update('Oadmin@111').digest('hex');
 const SITE_CODE_HASH = crypto.createHash('sha256').update('Nimer0787691975').digest('hex');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 let adminSocket = null;
 
