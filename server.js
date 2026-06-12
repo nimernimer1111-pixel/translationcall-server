@@ -878,7 +878,22 @@ app.get('/', (req, res) => {
     ai:GEMINI_API_KEY?'✅ Gemini Connected':'❌ No API Key'
   });
 });
-
+// ✅ Call Room - للمكالمة الاحترافية
+app.get('/call/:roomId', (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  if(room){
+    res.json({
+      exists: true,
+      isPrivate: room.isPrivate,
+      isFull: room.participants.size >= 2,
+      participants: room.participants.size,
+      status: room.status,
+      hostName: room.hostName || 'مضيف'
+    });
+  }else{
+    res.json({ exists: false });
+  }
+});
 app.get('/room/:roomId', (req, res) => {
   const room = rooms.get(req.params.roomId);
   if(room){
